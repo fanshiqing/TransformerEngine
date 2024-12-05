@@ -920,10 +920,15 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
     _ub_comm->use_ce = _use_ce;
     _ub_comm->sms = _num_comm_sm;
     _ub_comm->cga_size = _cga_size;
-    // Get GEMM dimensions between TN and NN input layouts
+    // Get GEMM dimensions between TN, NN and NT input layouts
     const int m = (transa) ? A.size(0) : A.size(1);
     const int k = (transa) ? A.size(1) : A.size(0);
-    const int n_chunk = _ubufs[0].size(0);
+    const int n = (transb) ? B.size(1) : B.size(0);
+
+    // For NN or TN layout, we chunk on the n dimension.
+    const int n_chunk = (transb) ? n : (n / _tp_size);
+    // For NT layer, we chunk on the k dimension.
+    const int k_chunk = (transb) ? (k / _tp_size) : k;
 
     // Get communication and GEMM output chunk sizes
     const int comm_bytes = _ubufs[0].numel() * _ubufs[0].element_size();
@@ -979,19 +984,21 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
         recv_offset = comm_bytes * recv_chunk_id;
 
         // GEMM
+        torch::Tensor input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk * 2) : A;
+        int output_offset = transb ? 0 : (send_chunk_id * output_chunk_bytes);
         torch::Tensor input_b_chunk =
-            torch::from_blob(input_b_ptr + send_offset, {n_chunk * 2, k}, _ubuf.options());
+            torch::from_blob(input_b_ptr + send_offset, (transb ? std::vector<int64_t>{k_chunk * 2, n} : std::vector<int64_t>{n_chunk * 2, k}), _ubuf.options());
         torch::Tensor output_chunk = torch::from_blob(
-            output_ptr + (send_chunk_id * output_chunk_bytes), {n_chunk * 2, m}, D.options());
+            output_ptr + output_offset, {n_chunk * (transb ? 1 : 2), m}, D.options());
         if (do_gelu) {
           pre_gelu_out = torch::from_blob(pre_gelu_out_ptr + (send_chunk_id * aux_chunk_bytes),
-                                          {n_chunk * 2, m}, pre_gelu_out.options());
+                                          {n_chunk * (transb ? 1 : 2), m}, pre_gelu_out.options());
         }
         torch::Tensor workspace_chunk =
             torch::from_blob(workspace_ptr + (i % _stream_compute.size()) * workspace_size_chunk,
                              {workspace_size_chunk}, workspace.options());
         at::cuda::setCurrentCUDAStream(_stream_compute[i % _stream_compute.size()]);
-        te_gemm(A, A_scale_inverse, A_type, transa, input_b_chunk, B_scale_inverse, B_type, transb,
+        te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, input_b_chunk, B_scale_inverse, B_type, transb,
                 output_chunk, D_scale, D_type, D_amax, bias, bias_type, pre_gelu_out, grad,
                 workspace_chunk, workspace_size_chunk, accumulate, use_split_accumulator,
                 _math_sms);
@@ -1026,8 +1033,10 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
         int recv_offset = comm_bytes * recv_chunk_id;
 
         // GEMM
+        // Different offsets for NT vs. TN/NN.
+        int output_offset = transb ? 0 : (send_chunk_id * output_chunk_bytes);
         torch::Tensor output_chunk = torch::from_blob(
-            output_ptr + (send_chunk_id * output_chunk_bytes), {n_chunk, m}, D.options());
+            output_ptr + output_offset, {n_chunk, m}, D.options());
         if (do_gelu) {
           pre_gelu_out = torch::from_blob(pre_gelu_out_ptr + (send_chunk_id * aux_chunk_bytes),
                                           {n_chunk, m}, pre_gelu_out.options());
@@ -1036,7 +1045,8 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
             torch::from_blob(workspace_ptr + (i % _stream_compute.size()) * workspace_size_chunk,
                              {workspace_size_chunk}, workspace.options());
         at::cuda::setCurrentCUDAStream(_stream_compute[i % _stream_compute.size()]);
-        te_gemm(A, A_scale_inverse, A_type, transa, _ubufs[send_chunk_id], B_scale_inverse, B_type,
+        torch::Tensor input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk) : A;
+        te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, _ubufs[send_chunk_id], B_scale_inverse, B_type,
                 transb, output_chunk, D_scale, D_type, D_amax, bias, bias_type, pre_gelu_out, grad,
                 workspace_chunk, workspace_size_chunk, accumulate, use_split_accumulator,
                 _math_sms);

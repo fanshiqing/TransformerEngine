@@ -214,15 +214,17 @@ def initialize_ub(
         "qkv_fprop",
         "qkv_dgrad",
         "proj_dgrad",
+        "proj_wgrad",
         "fc1_fprop",
         "fc1_dgrad",
         "fc2_dgrad",
+        "fc2_wgrad",
     ]
     layers_reduce_scatter_overlap = ["proj_fprop", "fc2_fprop", "qkv_wgrad", "fc1_wgrad"]
     dgrad_reduce_scatter_overlap = ["qkv_dgrad", "fc1_dgrad"]
     # Default overlap methods for layers
     methods = {
-        "ring_exchange": ["qkv_fprop", "fc1_fprop", "proj_dgrad", "fc2_dgrad"],
+        "ring_exchange": ["qkv_fprop", "fc1_fprop", "proj_dgrad", "proj_wgrad", "fc2_dgrad", "fc2_wgrad"],
         "pipeline": ["proj_fprop", "fc2_fprop"],
         "bulk": ["qkv_dgrad", "qkv_wgrad", "fc1_dgrad", "fc1_wgrad"],
     }
@@ -348,7 +350,7 @@ def initialize_ub(
 
     # Loop over user configs and disable dgrad and wgrad bulk overlaps for every layer that has a
     # reduce-scatter dgrad overlap.
-    ub_cfg = {} if ub_cfg is None else ub_cfg
+    ub_cfgs = {} if ub_cfgs is None else ub_cfgs
     for name in dgrad_reduce_scatter_overlap:
         if name in ub_cfgs:
             final_cfg = get_default_config(name)
@@ -367,7 +369,7 @@ def initialize_ub(
                 new_method = final_cfg["method"]
                 methods[new_method].append(name)
 
-            ub_cfg[name] = final_cfg
+            ub_cfgs[name] = final_cfg
 
     # Now initialize the UB objects for each layer
     for name in methods["ring_exchange"] + methods["pipeline"] + methods["bulk"]:
