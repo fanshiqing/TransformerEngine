@@ -915,7 +915,7 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
                                  at::Tensor D_amax, at::Tensor bias,
                                  transformer_engine::DType bias_type, at::Tensor pre_gelu_out,
                                  bool grad, at::Tensor workspace, size_t workspaceSize,
-                                 bool accumulate, bool use_split_accumulator, at::Tensor B_copy) {
+                                 bool accumulate, bool use_split_accumulator, bool ag_on_B, at::Tensor B_copy) {
     int ori_sms = _ub_comm->sms;
     _ub_comm->use_ce = _use_ce;
     _ub_comm->sms = _num_comm_sm;
@@ -956,7 +956,7 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
     }
     if (_aggregate2) {
       const int num_steps = _tp_size / 2;
-      char *input_b_ptr = reinterpret_cast<char *>(_ubuf.data_ptr());
+      char *input_ptr = reinterpret_cast<char *>(_ubuf.data_ptr());
 
       // Initial 1X input chunk exchange between neighboring peers
       int send_chunk_id = _tp_id;
@@ -984,10 +984,18 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
         recv_offset = comm_bytes * recv_chunk_id;
 
         // GEMM
-        torch::Tensor input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk * 2) : A;
+        torch::Tensor input_a_chunk, input_b_chunk;
+        if (ag_on_B) {
+          input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk * 2) : A;
+          input_b_chunk =
+            torch::from_blob(input_ptr + send_offset, (transb ? std::vector<int64_t>{k_chunk * 2, n} : std::vector<int64_t>{n_chunk * 2, k}), _ubuf.options());
+        } else {
+          // Used in bwd {AG->FC1_WGRAD} or {AG->QKV_WGRAD}.
+          assert(!transa and transb && "AllGather on input A tensor should only be enabled for NT layout.");
+          input_a_chunk = torch::from_blob(input_ptr + send_offset, std::vector<int64_t>{k_chunk * 2, m}, _ubuf.options());
+          input_b_chunk = B.narrow(0, send_chunk_id * k_chunk, k_chunk * 2);
+        }
         int output_offset = transb ? 0 : (send_chunk_id * output_chunk_bytes);
-        torch::Tensor input_b_chunk =
-            torch::from_blob(input_b_ptr + send_offset, (transb ? std::vector<int64_t>{k_chunk * 2, n} : std::vector<int64_t>{n_chunk * 2, k}), _ubuf.options());
         torch::Tensor output_chunk = torch::from_blob(
             output_ptr + output_offset, {n_chunk * (transb ? 1 : 2), m}, D.options());
         if (do_gelu) {
@@ -1045,8 +1053,19 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
             torch::from_blob(workspace_ptr + (i % _stream_compute.size()) * workspace_size_chunk,
                              {workspace_size_chunk}, workspace.options());
         at::cuda::setCurrentCUDAStream(_stream_compute[i % _stream_compute.size()]);
-        torch::Tensor input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk) : A;
-        te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, _ubufs[send_chunk_id], B_scale_inverse, B_type,
+
+        torch::Tensor input_a_chunk, input_b_chunk;
+        if (ag_on_B) { // AllGather is performed on B tensor.
+          input_a_chunk = transb ? A.narrow(0, send_chunk_id * k_chunk, k_chunk) : A;
+          input_b_chunk = _ubufs[send_chunk_id];
+        } else { // AllGather is performed on A tensor.
+          // Used in bwd {AG->FC1_WGRAD} or {AG->QKV_WGRAD}.
+          assert(!transa and transb && "AllGather on input A tensor should only be enabled for NT layout.");
+          input_a_chunk = _ubufs[send_chunk_id];
+          input_b_chunk = B.narrow(0, send_chunk_id * k_chunk, k_chunk);
+        }
+
+        te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, input_b_chunk, B_scale_inverse, B_type,
                 transb, output_chunk, D_scale, D_type, D_amax, bias, bias_type, pre_gelu_out, grad,
                 workspace_chunk, workspace_size_chunk, accumulate, use_split_accumulator,
                 _math_sms);

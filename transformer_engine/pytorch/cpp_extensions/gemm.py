@@ -201,6 +201,7 @@ def gemm(
     ub_algo: tex.UbufOverlapAlgo = None,
     ub: tex.UbufCommOverlap = None,
     extra_output_tensor: torch.Tensor = None,
+    ag_on_B: bool = True,
 ) -> Tuple[Union[torch.Tensor, None], ...]:
     """Non FP8 GEMM."""
 
@@ -209,6 +210,9 @@ def gemm(
     transb = layout[1] == "T"
     empty_tensor = _empty_tensor()
     fp8_index = -1  # dummy index
+
+    if not ag_on_B:
+        assert layout == "NT", f"GEMM layout should be 'NT' when ag_on_B is False"
 
     if out is None:
         out = torch.empty(
@@ -281,7 +285,8 @@ def gemm(
             extra_output_tensor = (
                 empty_tensor if extra_output_tensor is None else extra_output_tensor
             )
-            args = tuple(args + (extra_output_tensor,))
+            # ag_on_B: whether the all-gather is performed on B tensor.
+            args = tuple(args + (ag_on_B, extra_output_tensor,))
         elif ub_algo == tex.UbufOverlapAlgo.SPLIT_PIPELINED_RS:
             fn = ub.split_overlap_rs
             assert (

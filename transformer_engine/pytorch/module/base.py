@@ -222,6 +222,7 @@ def initialize_ub(
     ]
     layers_reduce_scatter_overlap = ["proj_fprop", "fc2_fprop", "qkv_wgrad", "fc1_wgrad"]
     dgrad_reduce_scatter_overlap = ["qkv_dgrad", "fc1_dgrad"]
+    all_gather_wgrad_overlap = ["qkv_wgrad", "fc1_wgrad"]
     # Default overlap methods for layers
     methods = {
         "ring_exchange": ["qkv_fprop", "fc1_fprop", "proj_dgrad", "proj_wgrad", "fc2_dgrad", "fc2_wgrad"],
@@ -358,7 +359,7 @@ def initialize_ub(
 
             if final_cfg["method"] != "bulk":
                 wgrad_name = name.replace("dgrad", "wgrad")
-                assert wgrad_name not in ub_cfgs
+                # assert wgrad_name not in ub_cfgs
 
                 layers_reduce_scatter_overlap.remove(wgrad_name)
                 layers_all_gather_overlap.remove(name)
@@ -367,7 +368,31 @@ def initialize_ub(
                 methods["bulk"].remove(name)
                 methods["bulk"].remove(wgrad_name)
                 new_method = final_cfg["method"]
-                methods[new_method].append(name)
+                if name not in methods[new_method]:
+                    methods[new_method].append(name)
+
+            ub_cfgs[name] = final_cfg
+
+    # Loop over user configs and disable dgrad and wgrad bulk overlaps for
+    # every layer that has a all-gather wgrad overlap.
+    for name in all_gather_wgrad_overlap:
+        if name in ub_cfgs:
+            final_cfg = get_default_config(name)
+            final_cfg.update(ub_cfgs[name])
+
+            if final_cfg["method"] != "bulk":
+                dgrad_name = name.replace("wgrad", "dgrad")
+
+                layers_reduce_scatter_overlap.remove(name)
+                layers_all_gather_overlap.remove(dgrad_name)
+                layers_all_gather_overlap.append(name)
+
+                methods["bulk"].remove(name)
+                methods["bulk"].remove(dgrad_name)
+                final_cfg["is_reduce_scatter"] = False
+                new_method = final_cfg["method"]
+                if name not in methods[new_method]:
+                    methods[new_method].append(name)
 
             ub_cfgs[name] = final_cfg
 
