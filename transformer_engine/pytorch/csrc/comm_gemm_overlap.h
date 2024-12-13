@@ -1198,7 +1198,8 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
     _ub_comm->use_ce = _use_ce;
     _ub_comm->sms = _num_comm_sm;
     _ub_comm->cga_size = _cga_size;
-    int k = A.size(1);
+    // Get GEMM dimensions between TN or NN input layouts.
+    const int k = (transa) ? A.size(1) : A.size(0);
     int n = B.size(0);
 
     // Get communication and GEMM input chunk sizes
