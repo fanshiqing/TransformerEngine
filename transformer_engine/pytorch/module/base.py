@@ -363,10 +363,12 @@ def initialize_ub(
 
                 layers_reduce_scatter_overlap.remove(wgrad_name)
                 layers_all_gather_overlap.remove(name)
+                assert name not in layers_reduce_scatter_overlap
                 layers_reduce_scatter_overlap.append(name)
 
                 methods["bulk"].remove(name)
-                methods["bulk"].remove(wgrad_name)
+                if wgrad_name not in ub_cfgs:
+                    methods["bulk"].remove(wgrad_name)
                 new_method = final_cfg["method"]
                 if name not in methods[new_method]:
                     methods[new_method].append(name)
@@ -383,12 +385,16 @@ def initialize_ub(
             if final_cfg["method"] != "bulk":
                 dgrad_name = name.replace("wgrad", "dgrad")
 
-                layers_reduce_scatter_overlap.remove(name)
-                layers_all_gather_overlap.remove(dgrad_name)
+                if name in layers_reduce_scatter_overlap:
+                    layers_reduce_scatter_overlap.remove(name)
+                if dgrad_name in layers_all_gather_overlap:
+                    layers_all_gather_overlap.remove(dgrad_name)
+                assert name not in layers_all_gather_overlap
                 layers_all_gather_overlap.append(name)
 
                 methods["bulk"].remove(name)
-                methods["bulk"].remove(dgrad_name)
+                if dgrad_name not in ub_cfgs:
+                    methods["bulk"].remove(dgrad_name)
                 final_cfg["is_reduce_scatter"] = False
                 new_method = final_cfg["method"]
                 if name not in methods[new_method]:
