@@ -1006,6 +1006,13 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
             torch::from_blob(workspace_ptr + (i % _stream_compute.size()) * workspace_size_chunk,
                              {workspace_size_chunk}, workspace.options());
         at::cuda::setCurrentCUDAStream(_stream_compute[i % _stream_compute.size()]);
+
+        // For NT input layer, overwrite the output buffer which perhpaps not been zeroed yet with the
+        // first chunk's partail output, and then accmulate the partial sum's result for all
+        // the following chunked gemms.
+        if (transa == false and transb == true and accumulate == false) {
+          accumulate = (i == 0) ? false : true;
+        }
         te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, input_b_chunk, B_scale_inverse, B_type, transb,
                 output_chunk, D_scale, D_type, D_amax, bias, bias_type, pre_gelu_out, grad,
                 workspace_chunk, workspace_size_chunk, accumulate, use_split_accumulator,
@@ -1063,6 +1070,13 @@ struct UbufP2PCommOverlap : torch::CustomClassHolder, UbufBase {
           assert(!transa and transb && "AllGather on input A tensor should only be enabled for NT layout.");
           input_a_chunk = _ubufs[send_chunk_id];
           input_b_chunk = B.narrow(0, send_chunk_id * k_chunk, k_chunk);
+        }
+
+        // For NT input layer, overwrite the output buffer which perhpaps not been zeroed yet with the
+        // first chunk's partail output, and then accmulate the partial sum's result for all
+        // the following chunked gemms.
+        if (transa == false and transb == true and accumulate == false) {
+          accumulate = (i == 0) ? false : true;
         }
 
         te_gemm(input_a_chunk, A_scale_inverse, A_type, transa, input_b_chunk, B_scale_inverse, B_type,
