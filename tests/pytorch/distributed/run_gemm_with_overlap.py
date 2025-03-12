@@ -51,6 +51,7 @@ def _mapped_argtype(opt, typemap):
 def _parse_args(argv=None, namespace=None):
     parser = argparse.ArgumentParser(description="Test comm+GEMM overlap with Userbuffers.")
     parser.add_argument("-b", "--batch-size", type=int, default=2, help="Input batch size.")
+    parser.add_argument("--local-rank", type=int, help="Input batch size.")
     parser.add_argument("-s", "--seq-length", type=int, default=1024, help="Input sequence length.")
     parser.add_argument(
         "-n", "--num-heads", type=int, default=16, help="Number of attention heads."
