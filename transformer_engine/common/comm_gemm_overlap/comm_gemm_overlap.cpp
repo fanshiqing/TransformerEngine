@@ -861,7 +861,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
       recv_offset = comm_bytes * recv_chunk_id;
 
       // GEMM
-      auto input_a_chunk = get_tensor_chunk(A, transb ? input_a_chunk_size * send_chunk_id : 0,
+      auto input_a_chunk = get_tensor_chunk(A, transb ? input_a_chunk_size * send_chunk_id / 2 : 0,
         transb ? std::vector<size_t>{k_chunk * 2, m} : std::vector<size_t>{m, k});
       auto input_b_chunk =
           get_buffer_chunk_like(B, input_b_chunk_size * send_chunk_id / 2, input_b_chunk_shape);
@@ -880,7 +880,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
       if (transa == false && transb == true && accumulate == false) {
         accumulate = (i == 0) ? false : true;
       }
-      nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
+      nvte_cublas_gemm(input_a_chunk.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
                        aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
                        use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
