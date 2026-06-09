@@ -68,6 +68,25 @@ void nvte_multi_tensor_unscale_l2norm_cuda(int chunk_size, NVTETensor noop_flag,
                                            int per_tensor, int max_chunks_per_tensor,
                                            cudaStream_t stream);
 
+/*!  \brief Counts the number of nonzero elements across a list of tensors.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]     chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]     noop_flag               Single element tensor accepted for harness-signature
+ *                                         compatibility; not used by this kernel.
+ *  \param[in]     tensor_lists            2D array of input tensors.
+ *  \param[in]     num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]     num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]     output                  Scratch space (int64). Fixed-size per-block partials.
+ *  \param[out]    ret                     Total number of nonzero elements (int64), all inputs.
+ *  \param[in]     stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_count_nonzero_cuda(int chunk_size, NVTETensor noop_flag,
+                                          NVTETensor **tensor_lists, const size_t num_tensor_lists,
+                                          const size_t num_tensors_per_list, NVTETensor output,
+                                          NVTETensor ret, cudaStream_t stream);
+
 /*!  \brief Compute and apply gradient update to parameters for Adam optimizer.
  *
  * \warning   This API is **experimental** and subject to change.

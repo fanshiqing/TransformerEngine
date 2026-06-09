@@ -558,6 +558,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         "Computes L2 norm for a list of contiguous tensors after unscaling (unscaling is only "
         "performed for L2 norm computation, and tensors are not updated)",
         py::call_guard<py::gil_scoped_release>());
+  m.def("multi_tensor_count_nonzero", &transformer_engine::pytorch::multi_tensor_count_nonzero_cuda,
+        "Counts the number of nonzero elements across a list of contiguous tensors",
+        py::call_guard<py::gil_scoped_release>());
   m.def("multi_tensor_adam", &transformer_engine::pytorch::multi_tensor_adam_cuda,
         "Compute and apply gradient update to parameters for Adam optimizer",
         py::call_guard<py::gil_scoped_release>());

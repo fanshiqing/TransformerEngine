@@ -169,6 +169,7 @@ list(APPEND transformer_engine_cpp_sources
 list(APPEND transformer_engine_cuda_sources
      common.cu
      multi_tensor/adam.cu
+     multi_tensor/count_nonzero.cu
      multi_tensor/l2norm.cu
      multi_tensor/scale.cu
      multi_tensor/sgd.cu
